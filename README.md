@@ -4,8 +4,6 @@ This repository contains scripts used to conduct the main analyses in the paper 
 
 ## Data
 
-tweets_by_users_in_network-bigmods.csv all tweets by users in the pro- and anti-vaccine communities posted during April. Output of grab-tweets.R
-
 user-chars.csv characteristics of users (centrality, category, perceived expertise, and community) used in main analyses. Output of user-chars.R
 
 users_formatch.csv dataframe of matching covariates used for propensity score matching (RQ4). Output of matching-covariates.R
@@ -30,7 +28,7 @@ grab-userinfo.R loops through dataframes of users to retrieve profiles (name, us
 
 process-user-labels.R script that takes in raw tags for user profiles and translates them into user categories. Also calculates interrater reliability. Inputs: user-labels.csv, validate-users2.csv, and validate-users3.csv (in user-lab folder). Outputs: user-labels-processed.csv, validate-users2-processed.csv, validate-users3-processed.csv, and validate-users-all.csv (in user-lab folder)
 
-grab-tweets.R loops through dataframes of tweets to retrieve tweets by users in the pro- and anti-vaccine communities. Output: tweets_by_users_in_network-bigmods.csv
+grab-tweets.R loops through dataframes of tweets to retrieve tweets by users in the pro- and anti-vaccine communities. Output (not included due to data sharing agreement): tweets_by_users_in_network-bigmods.csv
 
 link-analysis.R is a script to extend shortened URLs and check whether links are low quality or academic
 
