@@ -18,7 +18,7 @@ clustered_user_df<-read.csv("user-chars.csv") %>%
 #         df_name collection to retrieve tweets from (coronavirus or vaccines)
 # output: the tweet text, tweet id, user id, 
 get_tweets_help<-function(users, day, df_name){
-  df<-fread(paste0("../../ddd/dat/tweet_df_",df_name,"_2021-04-", sprintf("%02d", day), ".csv.gz")) %>%
+  df<-fread(paste0("../../../../ddd/dat/tweet_df_",df_name,"_2021-04-", sprintf("%02d", day), ".csv.gz")) %>%
     select(-"created_at")  %>%
     dplyr::filter(retweeted_status_user_id %in% users) %>% 
     group_by(tweet, retweeted_status_user_id, retweeted_status_id) %>%
@@ -45,7 +45,7 @@ full_df<-lapply(1:30, function(day)
   select(tweet, retweeted_status_id, retweeted_status_user_id, retweet_count) %>%
   rename(rand_id = retweeted_status_user_id) 
 
-full_df <- readRDS('../../ddd/dat/id_dict.rds') %>%
+full_df <- readRDS('../../../../ddd/dat/id_dict.rds') %>%
   right_join(full_df) %>%
   select(-rand_id) %>%
   rename(Id = init_id)

@@ -10,7 +10,7 @@ user-chars.csv characteristics of users (centrality, category, perceived experti
 
 users_formatch.csv dataframe of matching covariates used for propensity score matching (RQ4). Output of matching-covariates.R
 
-link-counts-bigmods dataframe with information about the types of links used in each tweet (where each row corresponds to a tweet). Output of get-link-counts.R
+link-counts-bigmods.csv dataframe with information about the types of links used in each tweet (where each row corresponds to a tweet). Output of get-link-counts.R
 
 ## Scripts that can be run with provided data
 

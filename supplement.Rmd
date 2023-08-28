@@ -138,7 +138,7 @@ ggplot(label_prop %>% filter(Community %in% c("Anti", "Pro", "Full", "Pro + Anti
 
 user_df<-read.csv("user-chars.csv") 
 
-link_df<-readRDS("link-counts-bigmods")
+link_df<-read.csv("link-counts-bigmods.csv")
 
 # dataframe with various proportions, including:
  # count variables

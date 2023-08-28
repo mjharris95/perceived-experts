@@ -45,9 +45,9 @@ df %>%
 
 user_df<-read.csv("user-chars.csv") 
 
-link_df<-readRDS("link-counts-bigmods")
+link_df<-read.csv("link-counts-bigmods.csv")
 
-# dataframe with various proportions, including:
+# dataframe with various proportions, including:  
  # count variables
         # tweet_num: total number of tweets by user
         # url_num: total number of URLs shared by
@@ -172,7 +172,9 @@ z_table %>%
 ```
 
 ```{r link-plot, fig.height = 10}
-#clean up variable names
+link_df %>% select(c(Community, is_PE, starts_with("est.") | starts_with("user")))
+
+#clean up variable names  
 labs <- c("A. Proportion of links that were \n \t low quality", "B. Proportion of users sharing \n  \t low quality links", 
 "C. Proportion of links that were \n  \t academic", "D. Proportion of users sharing \n  \t academic links")
 
@@ -196,7 +198,7 @@ link_df %>%
     scale_fill_manual(values=c("Anti-vaccine"="#CC66BB", 
                                "Pro-vaccine"="#66CC77"))+
     xlab("")+
-    ylab("")+
+    ylab(" ")+
     theme(legend.position="bottom",
           strip.text = element_text(hjust=0, size=20))
 
