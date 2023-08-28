@@ -46,7 +46,7 @@ Lists of links from academic sources and low quality sources.
 
 iffy-ratings.csv is a list of low quality sources is from Iffy.news at <https://docs.google.com/spreadsheets/d/1ck1_FZC-97uDLIlvRJDTrGqBk0FuDe9yHkluROgpGS8/edit#gid=1144285784>
 
-journal_links is a list of academic sources from Fatcat <https://archive.org/download/fatcat_bulk_exports_2022-11-24/container_export.json.gz> combined with the list of pre-prints via ASAPBio <https://asapbio.org/preprint-servers>
+journal_links is a list of academic sources from OpenAlex <https://openalex.org/> combined with the list of pre-prints via ASAPBio <https://asapbio.org/preprint-servers>
 
 ### network
 
