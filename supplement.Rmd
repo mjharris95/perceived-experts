@@ -542,10 +542,10 @@ for(i in 1:8){
     var_rename<-covar_names$name
     names(var_rename)<-covar_names$var
   
-     p[[i]]<-love.plot(as.formula(paste0('is_PE ~', paste(my_cov, collapse="+"))), data = df, weights=h3_weights, binary="std", abs=TRUE, thresholds=c(m=.1), var.names=var_rename,
-          drop.distance=TRUE)+
-          ggtitle(paste0("Dropped: ", covar_names[covar_names$var==dropped,"name"]))+
-  theme_classic(base_size=12)
+    p[[i]]<-love.plot(as.formula(paste0('is_PE ~', paste(my_cov, collapse="+"))), data = df, weights=h3_weights, binary="std", abs=TRUE, thresholds=c(m=.1), var.names=var_rename,
+              drop.distance=TRUE)+
+              ggtitle(paste0("Dropped:\n", covar_names[covar_names$var==dropped,"name"]))+
+      theme_classic(base_size=10)+xlab("Absolute Standardized \nMean Differences")
 
   md_mod1<-match.data(m.out_mod1)
   md_mod2<-match.data(m.out_mod2)
