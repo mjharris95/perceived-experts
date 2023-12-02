@@ -11,14 +11,7 @@ if(Sys.getenv('SLURM_JOB_ID') != ""){
 }
 
 # input set of tweets (in this case, all tweets from the two largest communities)
-tweet_df<-read.csv("tweets_by_users_in_network-bigmods.csv") %>%
-            rename(init_id = Id) %>%
-            mutate(init_id = as.character(init_id))
-
-tweet_df<-readRDS('../../ddd/dat/id_dict.rds') %>%
-  right_join(tweet_df) %>%
-  select(-init_id) %>%
-  rename(Id = rand_id)
+tweet_df<-read.csv("tweets_by_users_in_network-bigmods.csv") 
 
 # in parallel, run through all rows of a dataframe containing tweets with user Ids for person who posted them
 links_check<-foreach(this_tweet=iter(tweet_df, by='row'), .combine=rbind) %dopar%{
@@ -33,4 +26,6 @@ links_check %<>%
   arrange(Id)
   
 saveRDS(links_check, "link-counts-bigmods", compress=TRUE)
+
+
 

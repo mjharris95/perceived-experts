@@ -42,7 +42,7 @@ bridge_count<-function(node_num){
 df <- data.frame(Id = names(nw[1]), 
                  Degree=as.numeric(degree(nw)), 
                  Betweenness = as.numeric(betweenness(nw)),
-                 Eigenvector = as.numeric(page_rank(nw)$vector),
+                 PageRank = as.numeric(page_rank(nw)$vector),
                  Bridge = sapply(1:length(names(nw[1])), function(x) bridge_count(x))) %>%
   rowwise() %>%
   right_join(df)
@@ -86,7 +86,7 @@ df_stars$Bridge_stars[1:50]<-"**"
 df_stars$Bridge_stars[1:10]<-"***"
 df %<>% left_join(df_stars)
 
-for(my_metric in c("Degree", "Betweenness", "Eigenvector")){
+for(my_metric in c("Degree", "Betweenness", "PageRank")){
   df_stars<-data.frame()
   for(my_comm in c("Anti-vaccine", "Pro-vaccine")){
     # split for anti and pro
@@ -106,6 +106,6 @@ df %<>%
   mutate(Bridge_stars = ifelse(is.na(Bridge_stars), "", Bridge_stars),
          Degree_stars = ifelse(is.na(Degree_stars), "", Degree_stars),
          Betweenness_stars = ifelse(is.na(Betweenness_stars), "", Betweenness_stars),
-         Eigenvector_stars = ifelse(is.na(Eigenvector_stars), "", Eigenvector_stars))
+         PageRank_stars = ifelse(is.na(PageRank_stars), "", PageRank_stars))
 
 write.csv(df, "user-chars.csv", row.names=FALSE)

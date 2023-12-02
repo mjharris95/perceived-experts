@@ -15,6 +15,7 @@ library(xtable)
 library(marginaleffects)
 library(cowplot)
 library(irr)
+library(lubridate)
 
 theme_set(
     theme_classic(base_size = 25)
@@ -138,7 +139,7 @@ ggplot(label_prop %>% filter(Community %in% c("Anti", "Pro", "Full", "Pro + Anti
 
 user_df<-read.csv("user-chars.csv") 
 
-link_df<-read.csv("link-counts-bigmods.csv")
+link_df<-readRDS("link-counts-bigmods")
 
 # dataframe with various proportions, including:
  # count variables
@@ -148,26 +149,31 @@ link_df<-read.csv("link-counts-bigmods.csv")
  # user-level variables
         # user_count: whether user shared at least one link
 # append user info to corresponding tweet 
-link_df <- left_join(link_df, user_df, by="Id") %>%
-        filter(!is.na(is_PE)) %>%
+link_df <- left_join(user_df, link_df, by="Id") %>%
+        filter(!is.na(is_PE) & !is.na(Community)) %>%
+        mutate(tweet_num = ifelse(is.na(tweet_num), 0, tweet_num)) %>%
         # calculate link stats for each user
         group_by(Id, Community, is_PE) %>%
-        summarize(tweet_num = n(),
-            url_num = sum(url_num),
-            url_checked = sum(url_checked)) %>%
-        mutate(user_count = ifelse(url_num > 0, 1, 0)) %>%
+        summarize(url_num = sum(url_num, na.rm=TRUE),
+            url_checked = sum(url_checked, na.rm=TRUE),
+            tweet_num = sum(tweet_num, na.rm=TRUE)) %>%
+        mutate(user_posting_count = ifelse(tweet_num > 0, 1, 0)) %>%
+        mutate(user_count = 1) %>%
         # get total count for users split by community & perceived expertise
         group_by(Community, is_PE) %>%
         summarise_at(vars(starts_with(c("tweet", "url","user"))), ~sum(as.numeric(.))) %>%
         # estimate proportions of all links that were low quality/academic
         # and proportion of users that shared at least one low quality/academic link
-        mutate("est.pct_posts" = url_num / tweet_num,
+        mutate("est.user_posting" = user_posting_count/user_count,
+               "est.pct_posts" = url_num / tweet_num,
                "est.pct_checked" = url_checked / url_num, 
                "est.checked" = url_checked,
-               "est.post_per_user" = tweet_num / user_count) %>%
+               "est.post_per_user" = tweet_num / user_posting_count) %>%
        # get 95% confidence interval for different proportions
        rowwise() %>%
-       mutate("lo.pct_posts" = poisson.test(url_num, conf.level = 0.95 )$conf.int[1]/tweet_num,
+       mutate("lo.user_posting" = poisson.test(user_posting_count, conf.level = 0.95 )$conf.int[1]/user_count,
+               "hi.user_posting" = poisson.test(user_posting_count, conf.level = 0.95 )$conf.int[2]/user_count,
+              "lo.pct_posts" = poisson.test(url_num, conf.level = 0.95 )$conf.int[1]/tweet_num,
                "hi.pct_posts" = poisson.test(url_num, conf.level = 0.95 )$conf.int[2]/tweet_num,
                "lo.pct_checked" = poisson.test(url_checked, conf.level = 0.95 )$conf.int[1]/url_num,
                "hi.pct_checked" = poisson.test(url_checked, conf.level = 0.95 )$conf.int[2]/url_num,
@@ -181,10 +187,10 @@ link_df <- left_join(link_df, user_df, by="Id") %>%
 
 
 #clean up variable names
-labs <- c("A. Posts per user", "B. Proportion of posts \n \t with links", "C. Proportion links \n  \t checked", 
-"D. Number of checked links")
+labs <- c("A. Proportion of users \nwho posted", "B. Posts per user", "C. Proportion of posts \n \t with links", "D. Proportion links \n  \t checked", 
+"E. Number of checked \nlinks")
 
-names(labs) <- c("post_per_user", "pct_posts", 
+names(labs) <- c("user_posting", "post_per_user", "pct_posts", 
                  "pct_checked", "checked")
 #pivot longer to allow facetting
 link_df %>%
@@ -199,7 +205,7 @@ link_df %>%
   ggplot() + 
     geom_bar(aes(x=is_PE, y=est., fill=Community), stat="identity", position = "dodge", width = 0.8)+
     geom_errorbar(aes(x=is_PE, ymin=lo., ymax=hi., group=Community), position = position_dodge(width = 0.8), width = 0.4)+
-    facet_wrap(~metric, scales="free", labeller=labeller(metric=labs), nrow=3)+
+    facet_wrap(~metric, scales="free", labeller=labeller(metric=labs), nrow=2)+
     scale_fill_manual(values=c("Anti-vaccine"="#CC66BB", 
                                "Pro-vaccine"="#66CC77"))+
     xlab("")+
@@ -209,6 +215,167 @@ link_df %>%
 
 
 ```
+
+```{r link-overlap, fig.height=6}
+
+user_df<-read.csv("user-chars.csv") 
+
+link_df<-readRDS("link-counts-bigmods")
+
+# dataframe with various proportions, including:  
+ # count variables
+        # tweet_num: total number of tweets by user
+        # url_num: total number of URLs shared by
+        # url_checked: total number URLs shared by user that could be checked
+        # url_iffy: total number of low quality URLs shared by user
+        # url_acad: total number of academic URLs shared by user
+ # user-level variables
+        # user_iffy: whether user shared at least one low quality link
+        # user_acad: whether user shared at least on academic link
+        # user_count: whether user shared at least one link
+# append user info to corresponding tweet 
+link_df <- left_join(link_df, user_df, by="Id") %>%
+        filter(!is.na(is_PE) & !is.na(tweet_num)) %>%
+        # calculate link stats for each user
+        group_by(Id, Community, is_PE) %>%
+        summarize(tweet_num = n(),
+            url_num = sum(url_num),
+            url_checked = sum(url_checked),
+            url_iffy = sum(url_iffy),
+            url_acad = sum(url_acad)) %>%
+        mutate(user_iffy = ifelse(url_iffy > 0 & url_acad == 0, 1, 0),
+               user_acad = ifelse(url_acad > 0 & url_iffy == 0, 1, 0),
+               user_both = ifelse(url_acad > 0 & url_iffy > 0, 1, 0),
+               user_count = ifelse(url_num > 0, 1, 0)) %>%
+        # get total count for users split by community & perceived expertised
+        group_by(Community, is_PE) %>%
+        summarise_at(vars(starts_with(c("tweet", "url","user"))), ~sum(as.numeric(.))) %>%
+        # estimate proportions of all links that were low quality/academic
+        # and proportion of users that shared at least one low quality/academic link
+        mutate(#"est.pct_posts" = url_num / tweet_num,
+               #"est.pct_checked" = url_checked / url_num, 
+               #"est.checked" = url_checked,
+               #"est.post_per_user" = tweet_num / user_count, 
+               "est.user_pct_iffy" = user_iffy / user_count,
+               "est.user_pct_acad" = user_acad / user_count,
+               "est.user_pct_both" = user_both / user_count) %>%
+      mutate(is_PE=ifelse(is_PE==FALSE, "Perceived \nNon-expert", "Perceived \nExpert")) 
+
+
+# #clean up variable names  
+# labs <- c("A. Proportion of links that were \n \t low quality", "B. Proportion of users sharing \n  \t low quality links", 
+# "C. Proportion of links that were \n  \t academic", "D. Proportion of users sharing \n  \t academic links")
+# 
+# names(labs) <- c("pct_iffy", "user_pct_iffy", 
+#                  "pct_acad", "user_pct_acad")
+
+#pivot longer to allow coloring
+link_df %>%
+  pivot_longer(
+    cols = starts_with(c("est.", "lo.", "hi.")),
+    names_pattern = "(est.|lo.|hi.)(.*)",
+    names_to = c(".value", "metric")
+  ) %>%
+  filter(metric %in% c("user_pct_iffy", "user_pct_acad", "user_pct_both")) %>%
+  ggplot() + 
+    geom_bar(aes(x=is_PE, y=est., fill=metric), stat="identity", width = 0.8)+
+    facet_wrap(~Community, nrow=1)+
+    xlab("")+
+    ylab("Proportion Users")+
+    scale_fill_manual(name="",
+                        values=c("user_pct_iffy"="#eb1e2c", "user_pct_acad"="#f9d23c","user_pct_both"="#fd6f30"),
+                        labels=c("Academic Sources", "Low Quality and Academic Sources", "Low Quality Sources"))+
+    theme(legend.position="bottom",
+          strip.text = element_text(hjust=0, size=20))
+
+```
+
+
+```{r link-partisanship, fig.height=10}
+
+# Fig X: Statistics on link partisanship
+
+user_df<-read.csv("user-chars.csv") 
+
+link_df<-readRDS("link-counts-bigmods")
+
+# dataframe with various proportions, including:
+ # count variables
+        # tweet_num: total number of tweets by user
+        # url_num: total number of URLs shared by
+        # url_checked: total number URLs shared by user that could be checked
+ # user-level variables
+        # user_count: whether user shared at least one link
+        # right_num
+# append user info to corresponding tweet 
+link_df <- left_join(link_df, user_df, by="Id") %>%
+        filter(!is.na(is_PE)) %>%
+        # calculate link stats for each user
+        group_by(Id, Community, is_PE) %>%
+        summarize(tweet_num = n(),
+            url_num = sum(url_num),
+            url_checked = sum(url_checked),
+            url_right = sum(url_right),
+            url_left = sum(url_left)) %>%
+        mutate(user_right = ifelse(url_right > 0, 1, 0),
+               user_left = ifelse(url_left > 0, 1, 0),
+               user_count = ifelse(url_num > 0, 1, 0)) %>%
+        # get total count for users split by community & perceived expertise
+        group_by(Community, is_PE) %>%
+        summarise_at(vars(starts_with(c("tweet", "url","user"))), ~sum(as.numeric(.))) %>%
+         # estimate proportions of all links that were from partisan source
+        # and proportion of users that shared at least one partisan link
+        mutate("est.pct_right" = url_right / url_checked,
+               "est.pct_left" = url_left / url_checked,
+               "est.user_pct_right" = user_right / user_count,
+               "est.user_pct_left" = user_left / user_count) %>%
+       # get 95% confidence interval for different proportions
+       rowwise() %>%
+       mutate("lo.pct_right" = poisson.test(url_right, conf.level = 0.95 )$conf.int[1]/url_checked,
+               "hi.pct_right" = poisson.test(url_right, conf.level = 0.95 )$conf.int[2]/url_checked,
+               "lo.pct_left" = poisson.test(url_left, conf.level = 0.95 )$conf.int[1]/url_checked,
+               "hi.pct_left" = poisson.test(url_left, conf.level = 0.95 )$conf.int[2]/url_checked,
+               "lo.user_pct_right" = poisson.test(user_right, conf.level = 0.95)$conf.int[1]/user_count,
+               "hi.user_pct_right" = poisson.test(user_right, conf.level = 0.95)$conf.int[2]/user_count,
+               "lo.user_pct_left" = poisson.test(user_left, conf.level = 0.95)$conf.int[1]/user_count,
+               "hi.user_pct_left" = poisson.test(user_left, conf.level = 0.95)$conf.int[2]/user_count
+               ) %>%
+      ungroup() %>%
+      mutate(is_PE=ifelse(is_PE==FALSE, "Not \nPerceived \nExpert", "Perceived \nExpert")) 
+
+
+#clean up variable names
+#clean up variable names  
+labs <- c("A. Proportion of links that were \n \t right-wing", "B. Proportion of users sharing \n  \t right-wing link", 
+"C. Proportion of links that were \n  \t left-wing", "D. Proportion of users sharing \n  \t left-wing links")
+
+names(labs) <- c("pct_right", "user_pct_right", 
+                 "pct_left", "user_pct_left")
+#pivot longer to allow facetting
+link_df %>%
+  pivot_longer(
+    cols = starts_with(c("est.", "lo.", "hi.")),
+    names_pattern = "(est.|lo.|hi.)(.*)",
+    names_to = c(".value", "metric")
+  ) %>%
+  filter(metric %in% c("pct_right", "user_pct_right", "pct_left","user_pct_left")) %>%
+  # order for plotting
+  mutate(metric=factor(metric,levels=c("pct_right", "user_pct_right",
+                                    "pct_left", "user_pct_left"))) %>%
+  ggplot() + 
+    geom_bar(aes(x=is_PE, y=est., fill=Community), stat="identity", position = "dodge", width = 0.8)+
+    geom_errorbar(aes(x=is_PE, ymin=lo., ymax=hi., group=Community), position = position_dodge(width = 0.8), width = 0.4)+
+    facet_wrap(~metric, scales="free", labeller=labeller(metric=labs), nrow=3)+
+    scale_fill_manual(values=c("Anti-vaccine"="#CC66BB", 
+                               "Pro-vaccine"="#66CC77"))+
+    xlab("")+
+    ylab("Proportion")+
+    theme(legend.position="bottom",
+          strip.text = element_text(hjust=0, size=20))
+
+
+```
+
 
 ```{r submod-table}
 
@@ -276,10 +443,10 @@ print(xtable(submod_df,  type = "latex"), include.rownames = FALSE, file = "netw
 ```
 
 ```{r k-sens, fig.width=10, fig.height=15}
-# Fig 21
+# Fig 21  
 # Sensitivity to matching parameter k - number of nearest neighbor perceived non-experts each PE should be matched with
 
-#rename all matching covariates
+#rename all matching covariates  
 name<-c("Creation date",
           "Follower count (log)",
           "Account verified?",
@@ -319,41 +486,115 @@ covar_names<-data.frame(name=name, var=var)
 # covariates to match on 
 base_covar <- c('user_created', 'followers', 'ever_verified', 'post_count', 'rt_pct', 'url_pct', 'is_unif', 'morning_poster', 'afternoon_poster', 'evening_poster', 'night_poster')
 
+
 #rename outcome variables
 inf_names <- data.frame(var = c("med_likes", "hind_likes", "med_rts", "hind_rts", 
-                                "Degree", "Eigenvector", "Betweenness"),
-                        name = c("Median log(Likes)", "h-index log(Likes)",  
-                                 "Median log(Retweets)", "h-index log(Retweets)",
-                                 "Degree Centrality", "Eigenvector Centrality", 
+                                "Degree", "PageRank", "Betweenness"),
+                        name = c("Median Likes (log(RR))", "h-index Likes (log(RR))",  
+                                 "Median Retweets (log(RR))", "h-index Retweets (log(RR))",
+                                 "Degree Centrality", "PageRank Centrality", 
                                  "Betweenness Centrality"))
 
 # Read in and transform dataframe with matching covariates and responses
 df<-read.csv("users_formatch.csv") %>%
-    mutate(followers = log(followers + 1),
-           post_count = log(post_count),
-           rt_pct = retweet_count/post_count,
-           url_pct = url_num/post_count,
+      mutate(rt_pct = retweet_count/post_count,
+           url_pct = ifelse(url_num>0, 1, 0)/post_count,
+           followers = log(followers + 1),
+           post_count = log(post_count+1),
+           submod_11 = ifelse(submod == "1 1", T, F),
+           submod_12 = ifelse(submod == "1 2", T, F),
+           submod_21 = ifelse(submod == "2 1", T, F),
+           submod_22 = ifelse(submod == "2 2", T, F),
            user_created = as.Date(user_created),
-           med_rts = log(med_rts+1),
-           med_likes = log(med_likes+1)) %>%
+           med_rts = round(med_rts, digits=0),
+           med_likes = round(med_likes, digits=0)) %>%
+           mutate(rt_pct = ifelse(is.infinite(rt_pct), 0, rt_pct),
+                  url_pct = ifelse(is.infinite(url_pct), 0, url_pct)) %>%
     drop_na()  
 
 
 
 # Conduct matching, generate list of Love plots (p) and ATT calculations (att3_within)
 # where each entry corresponds to results for a different value of k
-p<-list()
-att3_within<-list()
+p <- list()
+att1 <- list()
+att2 <- list()
+att3_diff <- list()
+
+att_calc<-function(my_comm, hyp_name, add_covar=c(), k=3){ 
+  my_cov <- c(base_covar, add_covar)
+  
+  # conducts propensity score matching
+  m.out <- matchit(formula = as.formula(paste0('is_PE ~ ', paste(my_cov, collapse="+"))), 
+                   data=df %>% filter(Community == my_comm),
+                   distance = "glm",
+                   method="nearest",
+                   ratio=k)
+
+  md<-match.data(m.out)
+  
+  # looping through influence variables, calculate ATT
+  att <- c()
+  att_plot <- list()
+  
+  for(resp in inf_names$var){
+    if(! resp %in% c("med_likes", "hind_likes", "med_rts", "hind_rts")){
+      att <- lm(formula = as.formula(paste0(resp, '~ is_PE * (', paste(my_cov, collapse="+"), ")")),
+                data=md,
+                weights=weights) %>%
+            avg_comparisons(variables="is_PE",
+                           newdata=subset(md, is_PE==1),
+                           wts="weights",
+                           vcov = ~subclass) %>%
+            data.frame() %>%
+            mutate(var = resp) %>%
+            rbind(att)
+    }
+    
+    else{
+       att <- glm(formula = as.formula(paste0(resp, '~ is_PE * (', paste(my_cov, collapse="+"), ")")),
+                data=md,
+                weights=weights,
+                family="quasipoisson") %>%
+            avg_comparisons(variables="is_PE",
+                           newdata=subset(md, is_PE==1),
+                           wts="weights",
+                           vcov = ~subclass,
+                          comparison = "lnratioavg") %>%
+            data.frame() %>%
+            dplyr::select(c("term", "contrast", "estimate", "std.error", "statistic", "p.value", "conf.low", "conf.high")) %>%
+            mutate(var = resp) %>%
+            rbind(att)
+    }
+  }
+  
+  
+  # Return ATT plot
+  att %>%
+    left_join(inf_names) %>%
+    mutate(std_est = estimate/std.error,
+         min_est = conf.low/std.error,
+         max_est = conf.high/std.error,
+         Community = my_comm,
+         k = k) %>%
+  return()
+}
+
 
 for(k in 1:3){
-  m.out_mod1 <- matchit(formula = is_PE ~ user_created + followers + ever_verified + post_count + rt_pct + url_pct + morning_poster + afternoon_poster + evening_poster + night_poster + is_unif, 
+  # Run propensity score matching on the anti- and pro-vaccine communities respectively
+# to test hypotheses h1 and h2, with additional subcommunity matching within each community
+    att1[[k]] <- att_calc("Anti-vaccine", "h1", add_covar = c('submod_11', 'submod_12'), k=k)
+    att2[[k]] <- att_calc("Pro-vaccine", "h2", add_covar = c('submod_21', 'submod_22'), k=k)
+  
+  m.out_mod1 <- matchit(formula = is_PE ~ user_created + followers + ever_verified + post_count + rt_pct + url_pct + morning_poster + afternoon_poster + evening_poster + night_poster + is_unif + submod_11 + submod_12, 
                    data=filter(df, Community == "Anti-vaccine"),
                    distance = "glm",
                    method="nearest",
                    ratio=k,
                    estimand="ATT")
   
-  m.out_mod2 <- matchit(formula = is_PE ~ user_created + followers + ever_verified + post_count + rt_pct + url_pct + morning_poster + afternoon_poster + evening_poster + night_poster + is_unif, 
+  m.out_mod2 <- matchit(formula = is_PE ~ user_created + followers + ever_verified + post_count + rt_pct + url_pct + morning_poster + afternoon_poster + evening_poster + night_poster + is_unif + submod_21 + submod_22, 
                    data=filter(df, Community=="Pro-vaccine"),
                    distance = "glm",
                    method="nearest",
@@ -382,50 +623,76 @@ for(k in 1:3){
   md3<-rbind(md_mod1, md_mod2)
   
   # List of att for each value of k
-  att3_within[[k]] <- data.frame()
+  att3_diff[[k]] <- data.frame()
   
   # Loop through outcome variables and calculate ATT 
   for(resp in inf_names$var){
-    # Calculate ATT for each community
-    att3_within[[k]] <- lm(formula = as.formula(paste0(resp, ' ~ Community * ( is_PE * (', paste(base_covar, collapse="+"), "))")),
-                      data=md3,
-                      weights=weights) %>%
-                    avg_comparisons(variables="is_PE",
-                       newdata=subset(md3, is_PE==1),
-                       wts="weights",
-                       by = "Community") %>%
-                    data.frame() %>%
-                    mutate(var = resp) %>%
-                    rbind(att3_within[[k]])
+
+  if(! resp %in% c("med_likes", "hind_likes", "med_rts", "hind_rts")){
+  # Calculate ATT for each community
+  att3_diff[[k]] <- lm(formula = as.formula(paste0(resp, ' ~ Community * ( is_PE * (', paste(base_covar, collapse="+"), "))")),
+             data=md3,
+             weights=weights) %>%
+          avg_comparisons(variables="is_PE",
+                     newdata=subset(md3, is_PE==1),
+                     wts="weights",
+                     vcov = ~subclass,
+                     by = "Community",
+                     hypothesis="pairwise") %>%
+          data.frame() %>%
+         dplyr::select(c("term", "estimate", "std.error", "statistic", "p.value", "conf.low", "conf.high")) %>%
+          mutate(var = resp) %>%
+          rbind(att3_diff[[k]]) 
   }
+
+else{
+  att3_diff[[k]] <- glm(formula = as.formula(paste0(resp, ' ~ Community * ( is_PE * (', paste(base_covar, collapse="+"), "))")),
+                    data=md3,
+                    weights=weights,
+                    family="quasipoisson") %>%
+                  avg_comparisons(variables="is_PE",
+                     newdata=subset(md3, is_PE==1),
+                     wts="weights",
+                     by = "Community",
+                     vcov = ~subclass,
+                     hypothesis="pairwise",
+                     comparison = "lnratioavg") %>%
+                  data.frame() %>%
+                   dplyr::select(c("term", "estimate", "std.error", "statistic", "p.value", "conf.low", "conf.high")) %>%
+                  data.frame() %>%
+                  mutate(var = resp) %>%
+                  rbind(att3_diff[[k]])
+
+}
   
-  att3_within[[k]] %<>% mutate(k = k)
+ 
+   
 }
 
+   att3_diff[[k]] %<>% mutate(k = k)
+  }
+  
+ 
+
 # Faceted plot of ATT for each value of k
-att3_within %>%
-  do.call(rbind, .) %>%
-  left_join(inf_names) %>%
-  mutate(std_est = estimate/std.error,
-         min_est = conf.low/std.error,
-         max_est = conf.high/std.error) %>%
-  ggplot() + 
+rbind(att1 %>% do.call(rbind,.), att2 %>% do.call(rbind,.)) %>%
+ ggplot() + 
   geom_vline(xintercept=0,  linetype='dotted')+
   geom_pointrange(aes(x=std_est, xmin=min_est, xmax=max_est, color=Community,
                       y=factor(name, levels=rev(inf_names$name))),
                   position=ggstance::position_dodgev(height=0.3))+
-  geom_point(aes(x=std_est, color=Community, y=factor(name, levels=rev(inf_names$name)),
-                 size = ifelse(p.value<=.05, 5, NA)),
-             position=ggstance::position_dodgev(height=0.3), shape=1, stroke=1)+
-  scale_color_manual(values=c("Anti-vaccine"="#CC66BB",
-                              "Pro-vaccine"="#66CC77"))+
+  geom_point(aes(x=std_est, y=factor(name, levels=rev(inf_names$name)), color=Community,
+                size = ifelse(p.value<.05, 5, NA)),
+                 position=ggstance::position_dodgev(height=0.3), shape=1, stroke=1)+
+  theme(legend.position="none")+
+  scale_color_manual(values=c("Anti-vaccine" = "#CC66BB",
+                           "Pro-vaccine" = "#66CC77"))+
   scale_size_identity()+
   ylab("Influence Metric")+
   xlab("Average Treatment Effect on the Treated \n(Standardized)")+
   facet_wrap(~k, nrow=3, labeller = label_both, scales="free")+
   theme_classic() +
-  theme(legend.position="bottom")+
-  scale_x_continuous(limits=c(-2.8, 7.8)) -> effect_plot
+  theme(legend.position="bottom") -> effect_plot
 
 # Love plots on left
 leg<-get_legend(p[[3]])
@@ -436,10 +703,12 @@ plot_grid(p[[1]]+theme(legend.position="none"),
   plot_grid(., effect_plot, ncol=2)
 
 
+att3_diff %>% do.call(rbind, .) %>% filter(p.value < 0.05)
 ```
+
 ```{r drop-var, fig.width=10, fig.height=15}
 # Fig 22 & 23
-# Sensitivity to dropping one matching covariate
+# Sensitivity to dropping one matching covariate  
 
 #rename all matching covariates
 name<-c("Creation date",
@@ -468,7 +737,8 @@ name<-c("Creation date",
           "Submodule 1-1?",
           "Submodule 2-1?",
           "Submodule 2-2?",
-        "Posting Time")
+        "Posting Time",
+        "Subcommunity Assignment")
 
 var <- c("user_created", "followers", "ever_verifiedTRUE", "post_count", 
           "rt_pct", "url_pct", "morning_posterTRUE", "afternoon_posterTRUE", 
@@ -476,47 +746,124 @@ var <- c("user_created", "followers", "ever_verifiedTRUE", "post_count",
           "submod_11TRUE", "submod_21TRUE", "submod_22TRUE", "distance",
           "ever_verified", "morning_poster", "afternoon_poster", "evening_poster",
           "night_poster", "is_unif", "submod_12", "submod_11", "submod_21", "submod_22",
-         "posting_time")
+         "posting_time", "submodule")
 
 covar_names<-data.frame(name=name, var=var)
 
 # covariates to match on 
-base_covar <- c('user_created', 'followers', 'ever_verified', 'post_count', 'rt_pct', 'url_pct', 'is_unif', 'morning_poster', 'afternoon_poster', 'evening_poster', 'night_poster')
+base_covar <- c('user_created', 'followers', 'ever_verified', 'post_count', 'rt_pct', 'url_pct', 'is_unif', 'morning_poster', 'afternoon_poster', 'evening_poster', 'night_poster', "submod_12", "submod_11", "submod_21", "submod_22")
+
 
 #rename outcome variables
 inf_names <- data.frame(var = c("med_likes", "hind_likes", "med_rts", "hind_rts", 
-                                "Degree", "Eigenvector", "Betweenness"),
-                        name = c("Median log(Likes)", "h-index log(Likes)",  
-                                 "Median log(Retweets)", "h-index log(Retweets)",
-                                 "Degree Centrality", "Eigenvector Centrality", 
+                                "Degree", "PageRank", "Betweenness"),
+                        name = c("Median Likes (log(RR))", "h-index Likes (log(RR))",  
+                                 "Median Retweets (log(RR))", "h-index Retweets (log(RR))",
+                                 "Degree Centrality", "PageRank Centrality", 
                                  "Betweenness Centrality"))
 
 # Read in and transform dataframe with matching covariates and responses
 df<-read.csv("users_formatch.csv") %>%
-    mutate(followers = log(followers + 1),
-           post_count = log(post_count),
-           rt_pct = retweet_count/post_count,
-           url_pct = url_num/post_count,
+      mutate(rt_pct = retweet_count/post_count,
+           url_pct = ifelse(url_num>0, 1, 0)/post_count,
+           followers = log(followers + 1),
+           post_count = log(post_count+1),
+           submod_11 = ifelse(submod == "1 1", T, F),
+           submod_12 = ifelse(submod == "1 2", T, F),
+           submod_21 = ifelse(submod == "2 1", T, F),
+           submod_22 = ifelse(submod == "2 2", T, F),
            user_created = as.Date(user_created),
-           med_rts = log(med_rts+1),
-           med_likes = log(med_likes+1)) %>%
+           med_rts = round(med_rts, digits=0),
+           med_likes = round(med_likes, digits=0)) %>%
+           mutate(rt_pct = ifelse(is.infinite(rt_pct), 0, rt_pct),
+                  url_pct = ifelse(is.infinite(url_pct), 0, url_pct)) %>%
     drop_na()  
 
-
 # Conduct matching
-att_drop_within <- c()
+att_drop_diff <- c()
+att1_drop<-list()
+att2_drop<-list()
+
+att_calc_dropped<-function(my_comm, hyp_name, add_covar=c(), dropped, my_cov){ 
+  # get rid of all submodule variables, then add the right ones for the community back in if not dropped
+
+  if(dropped != "submodule"){
+    my_cov <- c(my_cov, add_covar) 
+  }
+  
+  # conducts propensity score matching
+  m.out <- matchit(formula = as.formula(paste0('is_PE ~ ', paste(my_cov, collapse="+"))), 
+                   data=df %>% filter(Community == my_comm),
+                   distance = "glm",
+                   method="nearest",
+                   ratio=k)
+
+  md<-match.data(m.out)
+  
+  # looping through influence variables, calculate ATT
+  att <- c()
+  att_plot <- list()
+  
+  for(resp in inf_names$var){
+    if(! resp %in% c("med_likes", "hind_likes", "med_rts", "hind_rts")){
+      att <- lm(formula = as.formula(paste0(resp, '~ is_PE * (', paste(my_cov, collapse="+"), ")")),
+                data=md,
+                weights=weights) %>%
+            avg_comparisons(variables="is_PE",
+                           newdata=subset(md, is_PE==1),
+                           wts="weights",
+                           vcov = ~subclass) %>%
+            data.frame() %>%
+            mutate(var = resp) %>%
+            rbind(att)
+    }
+    
+    else{
+       att <- glm(formula = as.formula(paste0(resp, '~ is_PE * (', paste(my_cov, collapse="+"), ")")),
+                data=md,
+                weights=weights,
+                family="quasipoisson") %>%
+            avg_comparisons(variables="is_PE",
+                           newdata=subset(md, is_PE==1),
+                           wts="weights",
+                           vcov = ~subclass,
+                          comparison = "lnratioavg") %>%
+            data.frame() %>%
+            dplyr::select(c("term", "contrast", "estimate", "std.error", "statistic", "p.value", "conf.low", "conf.high")) %>%
+            mutate(var = resp) %>%
+            rbind(att)
+    }
+  }
+  
+  
+  # Return ATT plot
+  att %>%
+    left_join(inf_names) %>%
+    mutate(std_est = estimate/std.error,
+         min_est = conf.low/std.error,
+         max_est = conf.high/std.error,
+         Community = my_comm,
+         dropped = dropped) %>%
+  return()
+}
+
 p<-list()
-for(i in 1:8){
+for(i in 1:9){
   
     if(i == 8){
-      my_cov <- head(base_covar, 7)
+      my_cov <- c(head(base_covar, 7), tail(base_covar, 4))
       dropped <- "posting_time"
     }
     
+    else if(i ==9){
+      my_cov <- head(base_covar, 11)
+      dropped <- "submodule"
+    }
     else{
       my_cov <- base_covar[-i]
       dropped <- base_covar[i]
     }
+    
     
     
     m.out_mod1 <- matchit(formula = as.formula(paste0('is_PE ~ ', paste(my_cov, collapse="+"))),
@@ -542,32 +889,62 @@ for(i in 1:8){
     var_rename<-covar_names$name
     names(var_rename)<-covar_names$var
   
-    p[[i]]<-love.plot(as.formula(paste0('is_PE ~', paste(my_cov, collapse="+"))), data = df, weights=h3_weights, binary="std", abs=TRUE, thresholds=c(m=.1), var.names=var_rename,
-              drop.distance=TRUE)+
-              ggtitle(paste0("Dropped:\n", covar_names[covar_names$var==dropped,"name"]))+
-      theme_classic(base_size=10)+xlab("Absolute Standardized \nMean Differences")
+    if(sum(my_cov %in% c("submod_11", "submod_12", "submod_21", "submod_22"))>0){
+      my_cov <- my_cov[-which(my_cov %in% c("submod_11", "submod_12", "submod_21", "submod_22"))]
+    }
+    
+      att1[[i]] <- att_calc_dropped("Anti-vaccine", "h1", add_covar = c('submod_11', 'submod_12'), dropped = dropped, my_cov = my_cov)
+     att2[[i]] <- att_calc_dropped("Pro-vaccine", "h2", add_covar = c('submod_21', 'submod_22'), dropped = dropped, my_cov = my_cov)
+    
+     p[[i]]<-love.plot(as.formula(paste0('is_PE ~', paste(my_cov, collapse="+"))), data = df, weights=h3_weights, binary="std", abs=TRUE, thresholds=c(m=.1), var.names=var_rename,
+          drop.distance=TRUE)+
+          ggtitle(paste0("Dropped:\n", covar_names[covar_names$var==dropped,"name"]))+
+  theme_classic(base_size=10)+xlab("Absolute Standardized \nMean Differences")
 
   md_mod1<-match.data(m.out_mod1)
   md_mod2<-match.data(m.out_mod2)
   md3<-rbind(md_mod1, md_mod2)
   
     for(resp in inf_names$var){ 
-      att_drop_within <- lm(paste0(resp, '~ Community * (is_PE *  (', paste(my_cov, collapse="+"),'))'),
-                      data=md3,
-                      weights=weights) %>%
-      avg_comparisons(variables="is_PE",
-                      newdata=subset(md3, is_PE==1),
-                      wts="weights",
-                      vcov = ~subclass,
-                      by = "Community"
-                      ) %>%
-      data.frame() %>%
+      
+       if(! resp %in% c("med_likes", "hind_likes", "med_rts", "hind_rts")){
+  # Calculate ATT for each community
+  att_drop_diff <- lm(formula = as.formula(paste0(resp, ' ~ Community * ( is_PE * (', paste(my_cov, collapse="+"), "))")),
+                    data=md3,
+                    weights=weights) %>%
+                  avg_comparisons(variables="is_PE",
+                     newdata=subset(md3, is_PE==1),
+                     wts="weights",
+                     by = "Community",
+                     hypothesis = "pairwise",
+                     vcov = ~subclass) %>%
+                  data.frame() %>%
+ dplyr::select(c("term", "estimate", "std.error", "statistic", "p.value", "conf.low", "conf.high")) %>%
+          mutate(var = resp,
+             dropped = dropped) %>%
+      rbind(att_drop_diff)
+       }
+      
+      else{
+      att_drop_diff <- glm(formula = as.formula(paste0(resp, ' ~ Community * ( is_PE * (', paste(my_cov, collapse="+"), "))")),
+                    data=md3,
+                    weights=weights,
+                    family="quasipoisson") %>%
+                  avg_comparisons(variables="is_PE",
+                     newdata=subset(md3, is_PE==1),
+                     wts="weights",
+                     by = "Community",
+                     vcov = ~subclass,
+                     hypothesis="pairwise",
+                     comparison = "lnratioavg") %>%
+                  data.frame() %>%
+                 dplyr::select(c("term", "estimate", "std.error", "statistic", "p.value", "conf.low", "conf.high")) %>%
       mutate(var = resp,
              dropped = dropped) %>%
-      rbind(att_drop_within)
+      rbind(att_drop_diff)
+    }
   }
 }
-
 
 # Show all Love plots
 leg<-get_legend(p[[1]])
@@ -580,11 +957,12 @@ plot_grid(p[[1]]+theme(legend.position="none"),
           p[[6]]+theme(legend.position="none"),
           p[[7]]+theme(legend.position="none"),
           p[[8]]+theme(legend.position="none"),
-          leg,
-          nrow=3)
+          p[[9]]+theme(legend.position="none"),
+          nrow=3) %>%
+plot_grid(., leg, nrow=2, rel_heights = c(15,1))
 
 # Show all ATT plots
-att_drop_within %>%
+rbind(do.call(rbind, att1), do.call(rbind, att2))%>%
  left_join(inf_names) %>%
  left_join(., covar_names %>% rename("dropped_name"="name", "dropped"="var")) %>%
  mutate(std_est = estimate/std.error,
@@ -607,6 +985,8 @@ att_drop_within %>%
   theme_classic() +
   theme(legend.position="bottom") 
 
+att_drop_diff %>% filter(p.value < .05)
+
 ```
 
 ```{r cent-dist, fig.height=8, fig.width=6}
@@ -615,38 +995,41 @@ att_drop_within %>%
 
 df1<-read.csv("users_formatch.csv") %>%
     filter(Community=="Anti-vaccine") %>%
-    mutate(followers = log(followers + 1),
-           post_count = log(post_count),
-           rt_pct = retweet_count/post_count,
-           url_pct = url_num/post_count,
+    mutate(rt_pct = retweet_count/post_count,
+           url_pct = ifelse(url_num>0, 1, 0)/post_count,
+           followers = log(followers + 1),
+           post_count = log(post_count +1),
            submod_11 = ifelse(submod == "1 1", T, F),
            submod_12 = ifelse(submod == "1 2", T, F),
            user_created = as.Date(user_created),
            med_rts = log(med_rts+1),
            med_likes = log(med_likes+1)) %>%
+       mutate(rt_pct = ifelse(is.infinite(rt_pct), 0, rt_pct),
+        url_pct = ifelse(is.infinite(url_pct), 0, url_pct)) %>%
        mutate(Degree = log(Degree),
               Betweenness = log(Betweenness +1), 
-              Eigenvector = log(Eigenvector)) %>%
+              PageRank = log(PageRank)) %>%
     drop_na()  
 
 df2<-read.csv("users_formatch.csv") %>%
-    filter(Community=="Pro-vaccine") %>%
-    mutate(followers = log(followers + 1),
-           post_count = log(post_count),
-           rt_pct = retweet_count/post_count,
-           url_pct = url_num/post_count,
+    mutate(rt_pct = retweet_count/post_count,
+           url_pct = ifelse(url_num>0, 1, 0)/post_count,
+           followers = log(followers + 1),
+           post_count = log(post_count +1),
            submod_21 = ifelse(submod == "2 1", T, F),
            submod_22 = ifelse(submod == "2 2", T, F),
            user_created = as.Date(user_created),
            med_rts = log(med_rts+1),
            med_likes = log(med_likes+1)) %>%
+   mutate(rt_pct = ifelse(is.infinite(rt_pct), 0, rt_pct),
+      url_pct = ifelse(is.infinite(url_pct), 0, url_pct)) %>%
           mutate(Degree = log(Degree),
               Betweenness = log(Betweenness +1), 
-              Eigenvector = log(Eigenvector)) %>%
+              PageRank = log(PageRank)) %>%
     drop_na()  
 
 # Find cutoffs for top 500 and top 50 most central in each community by each metric
-metrics <- c("Degree", "Betweenness", "Eigenvector")
+metrics <- c("Degree", "Betweenness", "PageRank")
 
 cutoffs<-data.frame(metric=metrics) %>%
   mutate(Community = "Anti-vaccine") %>%
@@ -679,8 +1062,8 @@ df1 %<>%
        select(-in_matched) %>%
        mutate(is_PE = "Perceived Non-Expert (Matched)") %>%
        rbind(df1 %>% mutate(is_PE=ifelse(is_PE==TRUE, "Perceived Expert", "Perceived Non-Expert (Full)"))) %>%
-       select(c(Degree, Betweenness, Eigenvector, is_PE, Community)) %>%
-       pivot_longer(cols = c(Degree, Betweenness, Eigenvector), values_to = "centrality", names_to = "metric") 
+       select(c(Degree, Betweenness, PageRank, is_PE, Community)) %>%
+       pivot_longer(cols = c(Degree, Betweenness, PageRank), values_to = "centrality", names_to = "metric") 
 
 df2 %<>%
        mutate(in_matched = m.out2$weights) %>%
@@ -688,15 +1071,20 @@ df2 %<>%
        select(-in_matched) %>%
        mutate(is_PE = "Perceived Non-Expert (Matched)") %>%
        rbind(df2 %>% mutate(is_PE=ifelse(is_PE==TRUE, "Perceived Expert", "Perceived Non-Expert (Full)"))) %>%
-       select(c(Degree, Betweenness, Eigenvector, is_PE, Community)) %>%
-       pivot_longer(cols = c(Degree, Betweenness, Eigenvector), values_to = "centrality", names_to = "metric") 
+       select(c(Degree, Betweenness, PageRank, is_PE, Community)) %>%
+       pivot_longer(cols = c(Degree, Betweenness, PageRank), values_to = "centrality", names_to = "metric") 
 
 theme_set(
     theme_classic(base_size = 10)
 )
 
-rbind(df1, df2) %>%
-  left_join(cutoffs) %>%
+full_df <- rbind(df1, df2) %>%
+  left_join(cutoffs) 
+
+full_df %>%
+  group_by(metric, is_PE, Community) %>%
+  summarize(mean = mean(centrality)) %>%
+  right_join(full_df) %>%
 ggplot() + 
   geom_density(aes(x=centrality, color = is_PE))+
   geom_vline(aes(xintercept=top500), color="grey")+
@@ -706,4 +1094,261 @@ ggplot() +
   scale_color_discrete("")+
   theme(strip.placement = "outside")+
   scale_x_continuous("Centrality (Logged)")
+```
+
+```{r covar-dist, fig.height=10, fig.width=6}
+# Fig 25
+# Plot of the distribution of covariates for different metrics and communities before and after matching
+df1<-read.csv("users_formatch.csv") %>%
+    filter(Community=="Anti-vaccine") %>%
+    mutate(rt_pct = retweet_count/post_count,
+           url_pct = ifelse(url_num>0, 1, 0)/post_count,
+           followers = log(followers + 1),
+           post_count = log(post_count +1),
+           submod_11 = ifelse(submod == "1 1", T, F),
+           submod_12 = ifelse(submod == "1 2", T, F),
+           user_created = as.Date(user_created),
+           med_rts = log(med_rts+1),
+           med_likes = log(med_likes+1),
+           hind_likes = log(hind_likes+1),
+           hind_rts = log(hind_rts+1)) %>%
+       mutate(Degree = log(Degree),
+              Betweenness = log(Betweenness +1), 
+              PageRank = log(PageRank),
+              Retweets  = med_rts,
+              Likes = med_likes) %>%
+      mutate(rt_pct = ifelse(is.infinite(rt_pct), 0, rt_pct),
+        url_pct = ifelse(is.infinite(url_pct), 0, url_pct)) %>%
+    drop_na()  
+
+df2<-read.csv("users_formatch.csv") %>%
+    filter(Community=="Pro-vaccine") %>%
+        mutate(rt_pct = retweet_count/post_count,
+           url_pct = ifelse(url_num>0, 1, 0)/post_count,
+           followers = log(followers + 1),
+           post_count = log(post_count +1),
+           submod_21 = ifelse(submod == "2 1", T, F),
+           submod_22 = ifelse(submod == "2 2", T, F),
+           user_created = as.Date(user_created),
+           med_rts = log(med_rts+1),
+           med_likes = log(med_likes+1),
+           hind_likes = log(hind_likes+1),
+           hind_rts = log(hind_rts+1)) %>%
+       mutate(Degree = log(Degree),
+              Betweenness = log(Betweenness +1), 
+              PageRank = log(PageRank),
+              Retweets  = med_rts,
+              Likes = med_likes) %>%
+      mutate(rt_pct = ifelse(is.infinite(rt_pct), 0, rt_pct),
+        url_pct = ifelse(is.infinite(url_pct), 0, url_pct)) %>%
+    drop_na()  
+
+#Perform matching in both communities
+m.out1 <- matchit(formula = is_PE ~  user_created + followers + ever_verified + post_count + rt_pct + url_pct + morning_poster + afternoon_poster + evening_poster + night_poster + is_unif + submod_11 + submod_12, 
+                 data=df1,
+                 distance = "glm",
+                 method="nearest",
+                 ratio=3)
+
+m.out2 <- matchit(formula = is_PE ~  user_created + followers + ever_verified + post_count + rt_pct + url_pct + morning_poster + afternoon_poster + evening_poster + night_poster + is_unif + submod_21 + submod_22, 
+                 data=df2,
+                 distance = "glm",
+                 method="nearest",
+                 ratio=3)
+
+# Transform dfs for plotting
+df1 %<>%
+       mutate(in_matched = m.out1$weights) %>%
+       filter(is_PE == FALSE & in_matched > 0) %>%
+       select(-in_matched) %>%
+       mutate(is_PE = "Perceived Non-Expert (Matched)") %>%
+       rbind(df1 %>% mutate(is_PE=ifelse(is_PE==TRUE, "Perceived Expert", "Perceived Non-Expert (Full)"))) %>%
+       select(c(user_created, followers, post_count, rt_pct, url_pct, ever_verified, is_PE, Community)) %>%
+       mutate(user_created = decimal_date(user_created)) %>%
+       rename("Creation date"=user_created,
+              "Follower count (log)"=followers,
+              "Account verified?"=ever_verified,
+              "On-topic post count (log)"=post_count,
+              "Percent retweets"=rt_pct,
+              "Percent with links"=url_pct) %>%
+       pivot_longer(cols = c("Creation date", "Follower count (log)", "Account verified?",
+                             "On-topic post count (log)","Percent retweets", "Percent with links"), values_to = "count", names_to = "metric") 
+
+df2 %<>%
+       mutate(in_matched = m.out2$weights) %>%
+       filter(is_PE == FALSE & in_matched > 0) %>%
+       select(-in_matched) %>%
+       mutate(is_PE = "Perceived Non-Expert (Matched)") %>%
+       rbind(df2 %>% mutate(is_PE=ifelse(is_PE==TRUE, "Perceived Expert", "Perceived Non-Expert (Full)"))) %>%
+       select(c(user_created, followers, post_count, rt_pct, url_pct, ever_verified, is_PE, Community)) %>%
+       mutate(user_created = decimal_date(user_created)) %>%
+       rename("Creation date"=user_created,
+              "Follower count (log)"=followers,
+              "Account verified?"=ever_verified,
+              "On-topic post count (log)"=post_count,
+              "Percent retweets"=rt_pct,
+              "Percent with links"=url_pct) %>%
+       pivot_longer(cols = c("Creation date", "Follower count (log)", "Account verified?",
+                             "On-topic post count (log)","Percent retweets", "Percent with links"), values_to = "count", names_to = "metric")  
+
+theme_set(
+    theme_classic(base_size = 10)
+)
+
+full_df <- rbind(df1, df2)
+
+full_df %>%
+  group_by(metric, is_PE, Community) %>%
+  summarize(mean = mean(count)) %>%
+  right_join(full_df) %>%
+ggplot() + 
+  geom_density(aes(x=count, color = is_PE))+
+  geom_vline(aes(xintercept=mean, color=is_PE, linetype=is_PE))+
+  facet_wrap(metric~Community, nrow=6, scales="free")+
+  theme(legend.position="bottom")+
+  scale_color_discrete("")+
+  scale_linetype_manual(values = c("Perceived Expert"="solid", "Perceived Non-Expert (Full)"="solid", "Perceived Non-Expert (Matched)"="dashed"), guide="none")+
+  theme(strip.placement = "outside")+
+  scale_x_continuous("Covariate")
+```
+
+
+```{r outcome-dist, fig.height=10, fig.width=6}
+# Fig 26
+# Plot of the distribution of influence for different metrics and communities 
+
+df1<-read.csv("users_formatch.csv") %>%
+    filter(Community=="Anti-vaccine") %>%
+    mutate(rt_pct = retweet_count/post_count,
+           url_pct = ifelse(url_num>0, 1, 0)/post_count,
+           followers = log(followers + 1),
+           post_count = log(post_count +1),
+           submod_11 = ifelse(submod == "1 1", T, F),
+           submod_12 = ifelse(submod == "1 2", T, F),
+           user_created = as.Date(user_created),
+           med_rts = log(med_rts+1),
+           med_likes = log(med_likes+1),
+           hind_likes = log(hind_likes+1),
+           hind_rts = log(hind_rts+1)) %>%
+       mutate(rt_pct = ifelse(is.infinite(rt_pct), 0, rt_pct),
+              url_pct = ifelse(is.infinite(url_pct), 0, url_pct)) %>%
+       mutate(Degree = log(Degree),
+              Betweenness = log(Betweenness +1), 
+              PageRank = log(PageRank),
+              "Median Retweets"  = med_rts,
+              "Median Likes" = med_likes,
+              "h-index Retweets" = log(hind_rts+1),
+              "h-index Likes" = log(hind_likes+1)) %>%
+    drop_na()  
+
+
+df2<-read.csv("users_formatch.csv") %>%
+    filter(Community=="Pro-vaccine") %>%
+    mutate(rt_pct = retweet_count/post_count,
+           url_pct = ifelse(url_num>0, 1, 0)/post_count,
+           followers = log(followers + 1),
+           post_count = log(post_count +1),
+           submod_21 = ifelse(submod == "2 1", T, F),
+           submod_22 = ifelse(submod == "2 2", T, F),
+           user_created = as.Date(user_created),
+           med_rts = log(med_rts+1),
+           med_likes = log(med_likes+1)) %>%
+        mutate(rt_pct = ifelse(is.infinite(rt_pct), 0, rt_pct),
+               url_pct = ifelse(is.infinite(url_pct), 0, url_pct)) %>%
+       mutate(Degree = log(Degree),
+              Betweenness = log(Betweenness +1), 
+              PageRank = log(PageRank),
+              "Median Retweets"  = med_rts,
+              "Median Likes" = med_likes,
+              "h-index Retweets" = log(hind_rts+1),
+              "h-index Likes" = log(hind_likes+1)) %>%
+    drop_na()  
+
+#Perform matching in both communities
+m.out1 <- matchit(formula = is_PE ~  user_created + followers + ever_verified + post_count + rt_pct + url_pct + morning_poster + afternoon_poster + evening_poster + night_poster + is_unif + submod_11 + submod_12, 
+                 data=df1,
+                 distance = "glm",
+                 method="nearest",
+                 ratio=3)
+
+m.out2 <- matchit(formula = is_PE ~  user_created + followers + ever_verified + post_count + rt_pct + url_pct + morning_poster + afternoon_poster + evening_poster + night_poster + is_unif + submod_21 + submod_22, 
+                 data=df2,
+                 distance = "glm",
+                 method="nearest",
+                 ratio=3)
+
+# Transform dfs for plotting
+df1 %<>%
+       mutate(in_matched = m.out1$weights) %>%
+       filter(is_PE == FALSE & in_matched > 0) %>%
+       select(-in_matched) %>%
+       mutate(is_PE = "Perceived Non-Expert (Matched)") %>%
+       rbind(df1 %>% mutate(is_PE=ifelse(is_PE==TRUE, "Perceived Expert", "Perceived Non-Expert (Full)"))) %>%
+          select(c(c("Median Likes", "h-index Likes", "Median Retweets", "h-index Retweets", "Degree", "PageRank", "Betweenness"), is_PE, Community)) %>%
+       pivot_longer(cols = c(c("Median Likes", "h-index Likes", "Median Retweets", "h-index Retweets", "Degree", "PageRank", "Betweenness")), values_to = "count", names_to = "metric") 
+
+df2 %<>%
+       mutate(in_matched = m.out2$weights) %>%
+       filter(is_PE == FALSE & in_matched > 0) %>%
+       select(-in_matched) %>%
+       mutate(is_PE = "Perceived Non-Expert (Matched)") %>%
+       rbind(df2 %>% mutate(is_PE=ifelse(is_PE==TRUE, "Perceived Expert", "Perceived Non-Expert (Full)"))) %>%
+       select(c(c("Median Likes", "h-index Likes", "Median Retweets", "h-index Retweets", "Degree", "PageRank", "Betweenness"), is_PE, Community)) %>%
+       pivot_longer(cols = c(c("Median Likes", "h-index Likes", "Median Retweets", "h-index Retweets", "Degree", "PageRank", "Betweenness")), values_to = "count", names_to = "metric") 
+
+theme_set(
+    theme_classic(base_size = 10)
+)
+
+full_df <- rbind(df1, df2)
+
+full_df %>%
+  group_by(metric, is_PE, Community) %>%
+  summarize(mean = mean(count)) %>%
+  right_join(full_df) %>%
+ggplot() + 
+  geom_density(aes(x=count, color = is_PE))+
+  geom_vline(aes(xintercept=mean, color=is_PE))+
+  facet_wrap(factor(metric, levels=c("Median Likes", "h-index Likes", "Median Retweets", "h-index Retweets", "Degree", "PageRank", "Betweenness"))~Community, nrow=7, scales="free")+
+  theme(legend.position="bottom")+
+  scale_color_discrete("")+
+  theme(strip.placement = "outside")+
+  scale_x_continuous("Influence Metric (Logged)")
+
+
+```
+
+```{r compare-orig}
+n5s5<-read.csv("user-charsn5s5.csv") %>% 
+        select(old_comm, Community) %>%
+        mutate(network = "n5s5")
+
+n10s2<-read.csv("user-charsn10s2.csv") %>% 
+        select(old_comm, Community) %>%
+        mutate(network = "n10s2")
+
+all_new <- rbind(n5s5, n10s2) %>%
+              mutate(old_comm = ifelse(old_comm=="micro", "Other", old_comm))
+
+all_new %>%
+  group_by(Community, network) %>%
+  summarize(count = n()) %>%
+  right_join(all_new) %>%
+  group_by(Community, network, old_comm, count) %>%
+  summarize(prop = n()) %>%
+  mutate(Proportion = prop/count) %>%
+  filter(!is.na(old_comm)) %>%
+  mutate(Community = ifelse(is.na(Community), "Other", Community)) %>%
+  mutate(Community = factor(Community, levels = c("Anti-vaccine", "Pro-vaccine", "Other"))) %>%
+  ggplot()+
+  geom_bar(aes(x=Community, fill=old_comm, y=Proportion), position="stack", stat="identity")+
+    scale_fill_manual("Main text community",
+      values=c("Anti-vaccine"="#CC66BB",
+                               "Pro-vaccine"="#66CC77",
+                               "Other"="#64bccd"))+
+  facet_wrap(~network, nrow=1)+
+  theme(legend.position="bottom")+
+  scale_y_continuous(limits=c(0, 1))
+
+
 ```

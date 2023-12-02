@@ -10,11 +10,21 @@ iffy_df<-read.csv("link-lists/iffy-ratings.csv") %>%
 iffy_df$Domain.name <- sapply(iffy_df$Domain.name, function(x) paste0("https://", x))
 
 acad_urls<-readRDS("link-lists/journal_links.rds")
-  
+
+right_urls <- read.csv("link-lists/right-bias-sources.csv") %>%
+  select(homepage) %>%
+  unlist() %>%
+  as.character()
+
+left_urls <- read.csv("link-lists/left-bias-sources.csv") %>%
+  select(homepage) %>%
+  unlist() %>%
+  as.character()
+
 # function to get URL destination via https://stackoverflow.com/posts/34383991/revisions
 unshorten_url <- function(uri){
   require(RCurl)
-
+  
   # listCurlOptions()
   opts <- list(
     followlocation = TRUE,  # resolve redirects
@@ -55,7 +65,7 @@ replace_tweet_url<-function(tweet, Id, check=FALSE){
       return(tweet)
     }
     else{
-      return(list(tweet=tweet, Id=Id, url_num=0, url_checked=0, url_iffy=0, url_acad=0))
+      return(list(Id=Id, url_num=0, url_checked=0, url_iffy=0, url_acad=0, url_right=0, url_left=0))
     }
   }
   
@@ -86,6 +96,8 @@ replace_tweet_url<-function(tweet, Id, check=FALSE){
       
       url_iffy<-0
       url_acad<-0 
+      url_right<-0
+      url_left<-0
       
       #loop through all extended hyperlinks
       for(url in url_longer[startsWith(url_longer, "https://")]){
@@ -98,6 +110,14 @@ replace_tweet_url<-function(tweet, Id, check=FALSE){
         # string matching to identify and count academic sources
         if(startsWith(url, acad_urls) %>% any()){
           url_acad<-url_acad+1
+        }
+        
+        if(startsWith(url, right_urls) %>% any()){
+          url_right <- url_right+1
+        }
+        
+        if(startsWith(url, left_urls) %>% any()){
+          url_left <- url_left+1
         }
       }
     }
@@ -112,8 +132,7 @@ replace_tweet_url<-function(tweet, Id, check=FALSE){
     }
     
     else{
-      return(list(Id=Id, url_num=url_num, url_checked=url_checked, url_iffy=url_iffy, url_acad=url_acad))
+      return(list(Id=Id, url_num=url_num, url_checked=url_checked, url_iffy=url_iffy, url_acad=url_acad, url_right=url_right, url_left=url_left))
     }
   }
 }
-

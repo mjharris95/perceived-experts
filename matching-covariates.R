@@ -6,18 +6,20 @@ library(lubridate)
 library(magrittr)
 library(lubridate)
 
-# helps avoid issues with numeric compression
-options(scipen=30)
-
 # Only included individual, English profiles from the two main communities
+# change this line out to run for user-chars_n5s5 or user-chars n10s2
 user_df <- read.csv("user-chars.csv") %>%
-            mutate(Id = as.numeric(Id)) %>%
-            filter(!is.na(is_PE) & !is.na(Community))
+  filter(!is.na(is_PE) & !is.na(Community))
 
 # convert back to Twitter numeric Ids, create vector of users to retrieve info for 
-these_ids <- readRDS('../../ddd/dat/id_dict.rds') %>%
-  filter(rand_id %in% user_df$Id) %>%
-  select(init_id)
+clustered_user_df <- readRDS('../../../../../ddd/dat/id_dict.rds') %>%
+  right_join(user_df, by=c("rand_id"="Id")) %>%
+  select(-rand_id) %>%
+  rename(Id = init_id) 
+
+these_ids <- readRDS('../../../../../ddd/dat/id_dict.rds') %>%
+  filter(as.numeric(init_id) %in% clustered_user_df$Id) %>%
+  select(-rand_id) 
 
 # return to the raw Twitter data to collect additional covariates
 # this is more efficient than retrieving additional covariates for all users at beginning
@@ -32,24 +34,25 @@ get_user_stats_byday<-function(month, day, my_ids){
   else{
     # read in vaccines and coronavirus collections for the specified day
     # read in integer64 variables as characters to avoid numeric compression
-    df1 <- fread(paste0("../../ddd/dat/vaccines_2021-", sprintf("%02d", month), "-", sprintf("%02d", day), ".csv.gz"),
-                 integer64="character"
-    ) 
+    df1 <- fread(paste0("../../../../../ddd/dat/vaccines_2021-", sprintf("%02d", month), "-", sprintf("%02d", day), ".csv.gz"),
+                 integer64="character") 
     
-    df2<-fread(paste0("../../ddd/dat/coronavirus_2021-", sprintf("%02d", month), "-", sprintf("%02d", day), ".csv.gz"),
+    df2<-fread(paste0("../../../../../ddd/dat/coronavirus_2021-", sprintf("%02d", month), "-", sprintf("%02d", day), ".csv.gz"),
                integer64="character")
     
     df<-rbind(df1, df2) 
     
-    # convert tweet and user Ids back to numbers
-    df$user_id<-sapply(df$user_id, function(x) as.numeric(x))
-    df$id<-sapply(df$id, function(x) as.numeric(x))
+    df %<>% mutate(user_id = as.numeric(user_id),
+                   id = as.numeric(id),
+                   retweeted_status_user_id = as.numeric(retweeted_status_user_id),
+                   quoted_status_user_id = as.numeric(quoted_status_user_id))
     
     # generate dataframe of stats for specified users on the given day
     user_df_today<-select(df, ends_with(c("id", "favorite_count", "retweet_count",
                                           "followers_count",  "created_at", "verified"))) %>%
+      select(!starts_with("in_reply_to")) %>%
       # will use to count the frequency of retweets from each user
-      mutate(is_retweet = !is.na(retweeted_status_id)) %>%
+      mutate(is_retweet = retweeted_status_id != "" & !is.na(retweeted_status_id)) %>%
       # rename variable to clarify difference between post and account creation time
       rename("post_created_at"="created_at") %>%
       # rename some variables to prepare for pivoting
@@ -58,12 +61,11 @@ get_user_stats_byday<-function(month, day, my_ids){
       rename_at(vars(starts_with('user')), ~(paste0('orig-', .))) %>%
       rename_all(~(str_replace(., "quoted_status_", "quoted_status-"))) %>%
       rename_all(~(str_replace(., "retweeted_status_", "retweeted_status-"))) %>%
-      rename("user_created_at"="orig-user_created_at",
-             "user_verified"="orig-user_verified") %>%
+      rename("user_verified"="orig-user_verified", "user_created_at"="orig-user_created_at") %>%
       # pivot since observations of an original tweet due to retweets and quote tweets
       # give updated like and retweet counts for the original tweet
-      pivot_longer(cols=-c("post_created_at", "user_created_at", 
-                           "user_verified", "is_retweet","orig_user"),
+      pivot_longer(cols=-c("post_created_at", "is_retweet", "orig_user",
+                           "user_created_at", "user_verified"),
                    names_sep="-",
                    names_to = c("type",".value")) %>%
       # filter just to users in our dataset
@@ -88,31 +90,45 @@ get_user_stats_byday<-function(month, day, my_ids){
 full_df <-lapply(4:5, function(month) 
   lapply(1:31, function(day) get_user_stats_byday(month, day, these_ids$init_id)) %>%
     do.call(rbind,.)) %>%
-  do.call(rbind,.)
+  do.call(rbind,.) 
+
+#write.csv(full_df, '../../../../ddd/dat/tweets.csv', row.names=FALSE)
+#full_df <- read.csv('../../../../ddd/dat/tweets.csv')
 
 # go back to anonymous random identifier for users
-full_df <- readRDS('../../ddd/dat/id_dict.rds') %>%
-  mutate(init_id = as.numeric(init_id)) %>%
-  left_join(full_df, ., by=c("user_id"="init_id"), multiple="all") %>%
-  select(-"user_id") %>%
-  rename(user_id = rand_id)
+full_df <- left_join(readRDS('../../../../../ddd/dat/id_dict.rds') %>%
+                       mutate(unprecise_id = as.numeric(init_id)) %>%
+                       filter(rand_id %in% user_df$Id) %>%
+                       select(-init_id),
+                     readRDS('../../../../../ddd/dat/id_dict.rds') %>%
+                       mutate(unprecise_id = as.numeric(init_id)) %>%
+                       select(-rand_id)) %>%
+  distinct() %>%
+  left_join(full_df %>% mutate(user_id=as.character(user_id)), by=c("init_id"="user_id")) %>%
+  select(-c("init_id", "unprecise_id")) %>%
+  rename(user_id = rand_id) %>%
+  mutate(post_created_at = as_datetime(post_created_at))
+
 
 # create a separate dataframe that is only original tweets
 orig_df <- full_df %>% 
   filter(type=="orig") %>%
   select("post_created_at", "id", "user_id") %>%
-  rename(orig_post_created_at = post_created_at)
+  rename(orig_post_created_at = post_created_at) %>%
+  distinct()
+
 
 
 # only keep observations related to tweets originating in April
 full_df <- full_df %>%
-  filter(id %in% orig_df$id)
+  filter(id %in% orig_df$id) 
+
 
 # initialize user_stats, create variable for their initial follower count
 user_stats <- full_df %>%
   group_by(user_id) %>%
   summarize(followers = first(na.omit(user_followers_count))) %>%
-  right_join(user_df, by=c("user_id"="Id"))
+  right_join(user_df, by=c("user_id"="Id")) 
 
 # for each user, find when their account was created
 # whether they were ever verified or not verified during the time period
@@ -124,7 +140,7 @@ user_stats <- full_df %>%
             ever_verified =  any(user_verified),
             ever_unverified = any(!user_verified),
             post_count = n(),
-            retweet_count = sum(is_retweet)) %>%
+            retweet_count = sum(is_retweet, na.rm=TRUE)) %>%
   #did any users' verification status change during the time period?
   mutate(verif_change = ever_verified + ever_unverified) %>%
   right_join(user_stats)
@@ -133,7 +149,7 @@ user_stats <- full_df %>%
 user_stats <- full_df %>% 
   filter(type=="orig") %>%
   # convert to Eastern time
-  mutate(post_created_at = post_created_at - hours(5)) %>%
+  mutate(post_created_at = as_datetime(post_created_at) - hours(5)) %>%
   # retrieve hour when post was created
   mutate(post_created_at = hour(post_created_at)) %>%
   # for each user, find the number of posts created during a given time window
@@ -215,23 +231,18 @@ user_stats <- eng_df2 %>%
             hind_likes = hindex(favorite_count),
             med_rts = median(retweet_count,na.rm=TRUE),
             hind_rts = hindex(retweet_count)) %>%
-  right_join(user_stats)
+  right_join(user_stats, by="user_id")
 
-rm(full_df)
+#rm(full_df)
 
 # append other user variables
 user_stats <- user_df %>%
-  right_join(user_stats)
+  right_join(user_stats %>% rename(Id=user_id))
 
 # create additional variable from link analyses: number of posts with a URL
 user_stats<-readRDS("link-counts-bigmods") %>%
-  data.frame() %>%
-  rename(user_id = Id) %>%
-  mutate(user_id = unlist(user_id)) %>%
-  group_by(user_id) %>%
-  summarize(url_num= sum(as.numeric(url_num)>=1)) %>%
-  right_join(user_stats)
+  right_join(user_stats, by="Id") 
 
 
-write.csv(user_stats, "users_formatch.csv")
+write.csv(user_stats, "users_formatch.csv", row.names=FALSE)
 
