@@ -123,7 +123,7 @@ do_ztest <- function(filter_to, x_var){
     n_var <- "user_count"
   }
       
-  # for within-community comparison, subset to that community
+  # for within-community comparison, subset to that community  
   if(filter_to %in% c("Anti-vaccine", "Pro-vaccine")){
     ztest_x <- link_df %>% filter(Community==filter_to) %>% dplyr::select(x_var) %>% unlist()
     ztest_n <- link_df %>% filter(Community==filter_to) %>% dplyr::select(n_var) %>%  unlist()
@@ -171,7 +171,7 @@ z_table %>%
   mutate(p_oneside = round(p_oneside, digits=4),
          p_twosides = round(p_twosides, digits=4)) %>%
   ungroup() %>%
-  knitr::kable()
+  knitr::kable() 
 
 ```
 
@@ -197,12 +197,14 @@ link_df %>%
   # order for plotting
   mutate(metric=factor(metric,levels=c("pct_iffy", "user_pct_iffy",
                                     "pct_acad", "user_pct_acad"))) %>%
+  mutate(is_PE = ifelse(is_PE == "Perceived \nNon-expert", "Perceived \nNonexpert", is_PE)) %>%
   ggplot() + 
     geom_bar(aes(x=is_PE, y=est., fill=Community), stat="identity", position = "dodge", width = 0.8)+
     geom_errorbar(aes(x=is_PE, ymin=lo., ymax=hi., group=Community), position = position_dodge(width = 0.8), width = 0.4)+
     facet_wrap(~metric, scales="free", labeller=labeller(metric=labs), nrow=3)+
     scale_fill_manual(values=c("Anti-vaccine"="#CC66BB", 
-                               "Pro-vaccine"="#66CC77"))+
+                               "Pro-vaccine"="#66CC77"),
+                               labels=c("Antivaccine", "Provaccine"))+
     xlab(" ")+
     ylab("Proportion")+
     theme(legend.position="bottom",
@@ -279,13 +281,15 @@ cent_values %<>%
 cent_values %>% dplyr::select(p.val, Community, ranking, metric)
 
 cent_values %>% 
+  mutate(Community = ifelse(Community=="Anti-vaccine", "Antivaccine", Community)) %>%
+  mutate(Community = ifelse(Community=="Pro-vaccine", "Provaccine", Community)) %>%
 ggplot()+
   geom_bar(aes(fill=Community, y=frq, x=ranking), position="stack", stat="identity") +
   geom_errorbar(aes(x=ranking, ymin=lo, ymax=hi), width = 0.4) +
   geom_text(aes(x=ranking, y=hi+.01, label=sig_stars), size=8)+
   facet_grid(Community~metric)+
-  scale_fill_manual(values=c("Anti-vaccine"="#CC66BB", 
-                             "Pro-vaccine"="#66CC77"))+
+  scale_fill_manual(values=c("Antivaccine"="#CC66BB", 
+                             "Provaccine"="#66CC77"))+
   xlab("Top n individual users")+
   ylab("Proportion")+
   theme(legend.position="none",
@@ -826,9 +830,10 @@ rbind(att1, att2) %>%
   geom_point(aes(x=std_est, y=factor(name, levels=rev(inf_names$name)), color=Community,
                 size = ifelse(p.value<.05, 5, NA)),
                  position=ggstance::position_dodgev(height=0.3), shape=1, stroke=1)+
-  theme(legend.position="none")+
+  theme(legend.position="bottom")+
   scale_color_manual(values=c("Anti-vaccine" = "#CC66BB",
-                           "Pro-vaccine" = "#66CC77"))+
+                           "Pro-vaccine" = "#66CC77"),
+                     labels=c('Antivaccine', "Provaccine"))+
   scale_size_identity()+
   ylab("Influence Metric")+
   xlab("Average Treatment Effect on the Treated \n(Standardized)")

@@ -3,7 +3,7 @@ library(igraph)
 library(rgexf)
 library(magrittr)
 
-nw <- read.gexf("network/test-n10s2.gexf") %>%
+nw <- read.gexf("network/coeng-n2s10.gexf") %>%
   gexf.to.igraph()
 
 # Infomap communities
